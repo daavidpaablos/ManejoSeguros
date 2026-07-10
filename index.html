@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Control de Seguros</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Control de pólizas</p>
+        <h1>Seguros</h1>
+      </div>
+      <div class="actions">
+        <button id="exportCsv" type="button">Exportar CSV</button>
+        <label class="import-button">
+          Importar CSV
+          <input id="importCsv" type="file" accept=".csv,text/csv">
+        </label>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel entry-panel" aria-labelledby="formTitle">
+        <h2 id="formTitle">Nueva póliza</h2>
+        <form id="policyForm" autocomplete="off">
+          <input id="editingId" type="hidden">
+
+          <div class="pdf-reader">
+            <label class="import-button pdf-button">
+              Leer PDF y rellenar
+              <input id="pdfInput" type="file" accept="application/pdf,.pdf">
+            </label>
+            <label class="checkbox-line">
+              <input id="savePdfCheckbox" type="checkbox" disabled>
+              Guardar copia del PDF al guardar la póliza
+            </label>
+            <p id="pdfStatus" class="helper">Carga una póliza en PDF para intentar llenar estos campos automáticamente.</p>
+          </div>
+
+          <label>
+            Cliente
+            <input name="cliente" required placeholder="Nombre del cliente">
+          </label>
+
+          <label>
+            Número de póliza
+            <input name="poliza" required placeholder="T02-1-7-14232">
+          </label>
+
+          <div class="two-columns">
+            <label>
+              Vigencia desde
+              <input name="desde" type="date" required>
+            </label>
+            <label>
+              Hasta
+              <input name="hasta" type="date" required>
+            </label>
+          </div>
+
+          <label>
+            Producto
+            <input name="producto" required placeholder="Autos Individual">
+          </label>
+
+          <div class="two-columns">
+            <label>
+              Forma de pago
+              <select name="formaPago" required>
+                <option value="Contado">Contado</option>
+                <option value="Semestral">Semestral</option>
+                <option value="Trimestral">Trimestral</option>
+                <option value="Mensual">Mensual</option>
+              </select>
+            </label>
+            <label>
+              Moneda
+              <select name="moneda" required>
+                <option value="MXN">Pesos</option>
+                <option value="USD">Dólares</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="two-columns">
+            <label>
+              Prima neta
+              <input name="primaNeta" inputmode="decimal" required placeholder="175154.27">
+            </label>
+            <label>
+              Total a pagar
+              <input name="totalPagar" inputmode="decimal" required placeholder="196942.61">
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" id="saveButton">Guardar</button>
+            <button type="button" id="clearButton" class="secondary">Limpiar</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="content">
+        <section class="summary-grid" aria-label="Resumen">
+          <article class="metric">
+            <span>Clientes</span>
+            <strong id="totalClientes">0</strong>
+          </article>
+          <article class="metric">
+            <span>Contado</span>
+            <strong id="totalContado">0</strong>
+          </article>
+          <article class="metric">
+            <span>Semestral</span>
+            <strong id="totalSemestral">0</strong>
+          </article>
+          <article class="metric">
+            <span>Trimestral</span>
+            <strong id="totalTrimestral">0</strong>
+          </article>
+          <article class="metric">
+            <span>Mensual</span>
+            <strong id="totalMensual">0</strong>
+          </article>
+          <button id="showExpiredButton" type="button" class="metric metric-danger">
+            <span>Vencidas</span>
+            <strong id="totalVencidas">0</strong>
+          </button>
+        </section>
+
+        <section class="toolbar" aria-label="Filtros">
+          <label>
+            Mes
+            <select id="monthFilter">
+              <option value="all">Todos</option>
+            </select>
+          </label>
+          <label>
+            Buscar
+            <input id="searchInput" type="search" placeholder="Cliente, póliza o producto">
+          </label>
+          <label>
+            Moneda
+            <select id="currencyFilter">
+              <option value="all">Todas</option>
+              <option value="MXN">Pesos</option>
+              <option value="USD">Dólares</option>
+            </select>
+          </label>
+          <label>
+            Estado
+            <select id="statusFilter">
+              <option value="all">Todas</option>
+              <option value="expired">Vencidas</option>
+              <option value="active">Vigentes</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="table-wrap" aria-labelledby="tableTitle">
+          <div class="table-heading">
+            <h2 id="tableTitle">Pólizas registradas</h2>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Número de Póliza</th>
+                <th>Vigencia desde</th>
+                <th>Hasta</th>
+                <th>Producto</th>
+                <th>Forma de Pago</th>
+                <th>Prima Neta</th>
+                <th>Total a pagar</th>
+                <th>Moneda</th>
+                <th>Estado</th>
+                <th class="actions-column">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="policyRows"></tbody>
+          </table>
+          <p id="emptyState" class="empty">No hay pólizas capturadas todavía.</p>
+        </section>
+      </section>
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
