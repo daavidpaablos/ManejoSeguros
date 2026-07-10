@@ -68,6 +68,7 @@ const pdfStatus = document.querySelector("#pdfStatus");
 const savePdfCheckbox = document.querySelector("#savePdfCheckbox");
 const showExpiredButton = document.querySelector("#showExpiredButton");
 const tableTitle = document.querySelector("#tableTitle");
+const importBackupInput = document.querySelector("#importBackup");
 
 let policies = loadPolicies();
 let pendingPdf = null;
@@ -131,6 +132,8 @@ form.addEventListener("submit", async (event) => {
 document.querySelector("#clearButton").addEventListener("click", resetForm);
 document.querySelector("#exportCsv").addEventListener("click", exportCsv);
 document.querySelector("#importCsv").addEventListener("change", importCsv);
+document.querySelector("#exportBackup").addEventListener("click", exportBackup);
+importBackupInput.addEventListener("change", importBackup);
 pdfInput.addEventListener("change", importPdf);
 showExpiredButton.addEventListener("click", () => {
   statusFilter.value = "expired";
@@ -539,6 +542,139 @@ function exportCsv() {
   link.download = "polizas-seguros.csv";
   link.click();
   URL.revokeObjectURL(url);
+}
+
+async function exportBackup() {
+  try {
+    const backupPolicies = await Promise.all(
+      policies.map(async (policy) => {
+        const copy = {
+          ...policy,
+          pdf: policy.pdf ? { ...policy.pdf } : null,
+        };
+        if (copy.pdf) {
+          copy.pdf = {
+            ...copy.pdf,
+            dataUrl: await getStoredPdfDataUrl(copy.pdf),
+          };
+        }
+        return copy;
+      })
+    );
+
+    const backup = {
+      app: "ManejoSeguros",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      policies: backupPolicies,
+    };
+
+    downloadTextFile(
+      JSON.stringify(backup, null, 2),
+      `respaldo-polizas-${formatDateForFile(new Date())}.json`,
+      "application/json;charset=utf-8"
+    );
+  } catch (error) {
+    alert(error.message || "No pude exportar el respaldo completo.");
+  }
+}
+
+async function importBackup(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  try {
+    const backup = JSON.parse(await readTextFile(file));
+    if (!Array.isArray(backup.policies)) {
+      throw new Error("El archivo no parece ser un respaldo válido de pólizas.");
+    }
+
+    const replaceExisting = confirm(
+      "¿Quieres reemplazar todas las pólizas actuales con este respaldo?\n\nAceptar: reemplazar todo.\nCancelar: combinar con las pólizas actuales."
+    );
+    const importedPolicies = [];
+
+    for (const policy of backup.policies) {
+      const importedPolicy = normalizeBackupPolicy(policy);
+
+      if (policy.pdf?.dataUrl) {
+        const storedPdf = {
+          id: policy.pdf.id || crypto.randomUUID(),
+          name: policy.pdf.name || "poliza.pdf",
+          type: policy.pdf.type || "application/pdf",
+          savedAt: policy.pdf.savedAt || new Date().toISOString(),
+        };
+
+        await saveStoredPdf({ ...storedPdf, dataUrl: policy.pdf.dataUrl });
+        importedPolicy.pdf = storedPdf;
+      }
+
+      importedPolicies.push(importedPolicy);
+    }
+
+    policies = replaceExisting ? importedPolicies : mergePolicies(policies, importedPolicies);
+
+    if (!savePolicies()) {
+      throw new Error("No pude guardar el respaldo importado. Puede faltar espacio en el navegador.");
+    }
+
+    resetForm();
+    render();
+    alert(`Respaldo importado: ${importedPolicies.length} póliza(s).`);
+  } catch (error) {
+    alert(error.message || "No pude importar el respaldo.");
+  } finally {
+    event.target.value = "";
+  }
+}
+
+function normalizeBackupPolicy(policy) {
+  return {
+    id: policy.id || crypto.randomUUID(),
+    cliente: String(policy.cliente || "").trim(),
+    poliza: String(policy.poliza || "").trim(),
+    desde: normalizeDate(policy.desde),
+    hasta: normalizeDate(policy.hasta),
+    producto: String(policy.producto || "").trim(),
+    formaPago: ["Contado", "Semestral", "Trimestral", "Mensual"].includes(policy.formaPago) ? policy.formaPago : "Contado",
+    primaNeta: parseMoney(policy.primaNeta),
+    totalPagar: parseMoney(policy.totalPagar),
+    moneda: policy.moneda === "USD" ? "USD" : "MXN",
+    pdf: null,
+  };
+}
+
+function mergePolicies(currentPolicies, importedPolicies) {
+  const byId = new Map(currentPolicies.map((policy) => [policy.id, policy]));
+
+  importedPolicies.forEach((policy) => {
+    byId.set(policy.id, policy);
+  });
+
+  return [...byId.values()];
+}
+
+function readTextFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(new Error("No pude leer el archivo de respaldo.")));
+    reader.readAsText(file);
+  });
+}
+
+function downloadTextFile(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function formatDateForFile(date) {
+  return date.toISOString().slice(0, 10);
 }
 
 function importCsv(event) {
