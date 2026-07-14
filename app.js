@@ -287,7 +287,25 @@ function getVisiblePolicies() {
       selectedCollection === collectionStatus;
     const searchable = `${policy.cliente} ${policy.poliza} ${policy.producto} ${policy.notas || ""}`.toLowerCase();
     return startsInMonth && matchesCurrency && matchesStatus && matchesPayment && matchesCollection && searchable.includes(query);
-  });
+  }).sort(comparePoliciesByDate);
+}
+
+function comparePoliciesByDate(firstPolicy, secondPolicy) {
+  return (
+    compareDateValues(firstPolicy.desde, secondPolicy.desde) ||
+    compareDateValues(firstPolicy.hasta, secondPolicy.hasta) ||
+    compareDateValues(firstPolicy.proximoPago, secondPolicy.proximoPago)
+  );
+}
+
+function compareDateValues(firstValue, secondValue) {
+  const firstDate = parseLocalDate(firstValue);
+  const secondDate = parseLocalDate(secondValue);
+
+  if (firstDate && secondDate) return firstDate - secondDate;
+  if (firstDate) return -1;
+  if (secondDate) return 1;
+  return 0;
 }
 
 function clearFilters() {
