@@ -8,124 +8,163 @@
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <p class="eyebrow">Control de pólizas</p>
-        <h1>Seguros</h1>
-      </div>
-      <div class="actions">
-        <button id="exportCsv" type="button">Exportar CSV</button>
-        <label class="import-button">
-          Importar CSV
-          <input id="importCsv" type="file" accept=".csv,text/csv">
-        </label>
-        <button id="exportBackup" type="button">Exportar respaldo</button>
-        <label class="import-button">
-          Importar respaldo
-          <input id="importBackup" type="file" accept="application/json,.json">
-        </label>
+      <div class="topbar-inner">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">S</div>
+          <div>
+            <p class="eyebrow">Panel de administración</p>
+            <h1>Cartera de seguros</h1>
+            <p class="topbar-copy">Pólizas, cobranza y renovaciones en un solo lugar.</p>
+          </div>
+        </div>
+        <div class="actions backup-actions">
+          <button id="exportBackup" type="button" class="topbar-button">Exportar respaldo</button>
+          <label class="import-button topbar-import">
+            Importar respaldo
+            <input id="importBackup" type="file" accept="application/json,.json">
+          </label>
+        </div>
       </div>
     </header>
 
     <main class="layout">
-      <section class="panel entry-panel" aria-labelledby="formTitle">
-        <h2 id="formTitle">Nueva póliza</h2>
+      <aside class="panel entry-panel" aria-labelledby="formTitle">
+        <div class="section-heading form-heading">
+          <div>
+            <p class="section-kicker">Captura y edición</p>
+            <h2 id="formTitle">Nueva póliza</h2>
+          </div>
+          <span class="local-badge">Datos locales</span>
+        </div>
+
         <form id="policyForm" autocomplete="off">
-          <input id="editingId" type="hidden">
+          <input id="editingId" name="editingId" type="hidden">
+          <input id="renewalSourceId" name="renewalSourceId" type="hidden">
 
           <div class="pdf-reader">
-            <label class="import-button pdf-button">
-              Leer PDF y rellenar
+            <div class="pdf-reader-heading">
+              <span class="pdf-icon" aria-hidden="true">PDF</span>
+              <div>
+                <strong>Importar desde póliza</strong>
+                <p>Extrae datos y conserva una copia.</p>
+              </div>
+            </div>
+            <label class="import-button pdf-button secondary">
+              Seleccionar PDF
               <input id="pdfInput" type="file" accept="application/pdf,.pdf">
             </label>
             <label class="checkbox-line">
               <input id="savePdfCheckbox" type="checkbox" disabled>
-              Guardar copia del PDF al guardar la póliza
+              <span>Guardar copia del PDF</span>
             </label>
             <p id="pdfStatus" class="helper">Carga una póliza en PDF para intentar llenar estos campos automáticamente.</p>
           </div>
 
-          <label>
-            Cliente
-            <input name="cliente" required placeholder="Nombre del cliente">
-          </label>
+          <fieldset class="form-section">
+            <legend>Información principal</legend>
+            <div class="field-grid">
+              <label>
+                Cliente
+                <input name="cliente" required placeholder="Nombre del cliente">
+              </label>
+              <label>
+                Número de póliza
+                <input name="poliza" required placeholder="T02-1-7-14232">
+              </label>
+              <label class="field-span-2">
+                Producto
+                <input name="producto" required placeholder="Autos Individual">
+              </label>
+            </div>
+          </fieldset>
 
-          <label>
-            Número de póliza
-            <input name="poliza" required placeholder="T02-1-7-14232">
-          </label>
+          <fieldset class="form-section">
+            <legend>Vigencia y pagos</legend>
+            <div class="field-grid">
+              <label>
+                Vigencia desde
+                <input name="desde" type="date" required>
+              </label>
+              <label>
+                Hasta
+                <input name="hasta" type="date" required>
+              </label>
+              <label>
+                Forma de pago
+                <select name="formaPago" required>
+                  <option value="Contado">Contado</option>
+                  <option value="Semestral">Semestral</option>
+                  <option value="Trimestral">Trimestral</option>
+                  <option value="Mensual">Mensual</option>
+                </select>
+              </label>
+              <label>
+                Moneda
+                <select name="moneda" required>
+                  <option value="MXN">Pesos</option>
+                  <option value="USD">Dólares</option>
+                </select>
+              </label>
+              <label id="nextPaymentField" class="payment-date-field field-span-2" hidden>
+                Próximo pago
+                <input name="proximoPago" type="date">
+                <span class="input-help">Se mostrará una alerta cuando el cobro venza o falten 7 días.</span>
+              </label>
+            </div>
+          </fieldset>
 
-          <div class="two-columns">
-            <label>
-              Vigencia desde
-              <input name="desde" type="date" required>
-            </label>
-            <label>
-              Hasta
-              <input name="hasta" type="date" required>
-            </label>
-          </div>
-
-          <label>
-            Producto
-            <input name="producto" required placeholder="Autos Individual">
-          </label>
-
-          <div class="two-columns">
-            <label>
-              Forma de pago
-              <select name="formaPago" required>
-                <option value="Contado">Contado</option>
-                <option value="Semestral">Semestral</option>
-                <option value="Trimestral">Trimestral</option>
-                <option value="Mensual">Mensual</option>
-              </select>
-            </label>
-            <label>
-              Moneda
-              <select name="moneda" required>
-                <option value="MXN">Pesos</option>
-                <option value="USD">Dólares</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="two-columns">
-            <label>
-              Prima neta
-              <input name="primaNeta" inputmode="decimal" required placeholder="175154.27">
-            </label>
-            <label>
-              Total a pagar
-              <input name="totalPagar" inputmode="decimal" required placeholder="196942.61">
-            </label>
-          </div>
+          <fieldset class="form-section">
+            <legend>Importes y seguimiento</legend>
+            <div class="field-grid">
+              <label>
+                Total a pagar
+                <input name="totalPagar" inputmode="decimal" required placeholder="196942.61">
+              </label>
+              <label>
+                Ganancia del agente
+                <input name="gananciaAgente" inputmode="decimal" placeholder="2500.00">
+              </label>
+              <label class="field-span-2">
+                Notas <span class="optional-label">Opcional</span>
+                <textarea name="notas" rows="4" placeholder="Observaciones, acuerdos o recordatorios"></textarea>
+              </label>
+            </div>
+          </fieldset>
 
           <div class="form-actions">
-            <button type="submit" id="saveButton">Guardar</button>
-            <button type="button" id="clearButton" class="secondary">Limpiar</button>
+            <button type="submit" id="saveButton" class="primary-action">Guardar póliza</button>
+            <button type="button" id="clearButton" class="secondary">Limpiar formulario</button>
           </div>
         </form>
-      </section>
+      </aside>
 
       <section class="content">
+        <div class="content-heading">
+          <div>
+            <p class="section-kicker">Vista general</p>
+            <h2>Resumen de cartera</h2>
+            <p>Las estadísticas responden automáticamente a los filtros.</p>
+          </div>
+        </div>
+
         <section class="summary-grid" aria-label="Resumen">
-          <article class="metric">
+          <article class="metric metric-count">
             <span>Clientes</span>
             <strong id="totalClientes">0</strong>
           </article>
-          <article class="metric">
+          <article class="metric metric-count">
             <span>Contado</span>
             <strong id="totalContado">0</strong>
           </article>
-          <article class="metric">
+          <article class="metric metric-count">
             <span>Semestral</span>
             <strong id="totalSemestral">0</strong>
           </article>
-          <article class="metric">
+          <article class="metric metric-count">
             <span>Trimestral</span>
             <strong id="totalTrimestral">0</strong>
           </article>
-          <article class="metric">
+          <article class="metric metric-count">
             <span>Mensual</span>
             <strong id="totalMensual">0</strong>
           </article>
@@ -133,63 +172,133 @@
             <span>Vencidas</span>
             <strong id="totalVencidas">0</strong>
           </button>
+          <button id="showCollectionsButton" type="button" class="metric metric-warning">
+            <span>Cobros por atender</span>
+            <strong id="totalCollectionsDue">0</strong>
+          </button>
+          <article class="metric metric-money">
+            <span>Total a pagar · Pesos</span>
+            <strong id="totalPagarMXN">$0.00 MXN</strong>
+          </article>
+          <article class="metric metric-money">
+            <span>Total a pagar · Dólares</span>
+            <strong id="totalPagarUSD">$0.00 USD</strong>
+          </article>
+          <article class="metric metric-money metric-earnings">
+            <span>Ganancia del agente · Pesos</span>
+            <strong id="totalGananciaMXN">$0.00 MXN</strong>
+          </article>
+          <article class="metric metric-money metric-earnings">
+            <span>Ganancia del agente · Dólares</span>
+            <strong id="totalGananciaUSD">$0.00 USD</strong>
+          </article>
         </section>
 
         <section class="toolbar" aria-label="Filtros">
-          <label>
-            Mes
-            <select id="monthFilter">
-              <option value="all">Todos</option>
-            </select>
-          </label>
-          <label>
-            Buscar
-            <input id="searchInput" type="search" placeholder="Cliente, póliza o producto">
-          </label>
-          <label>
-            Moneda
-            <select id="currencyFilter">
-              <option value="all">Todas</option>
-              <option value="MXN">Pesos</option>
-              <option value="USD">Dólares</option>
-            </select>
-          </label>
-          <label>
-            Estado
-            <select id="statusFilter">
-              <option value="all">Todas</option>
-              <option value="expired">Vencidas</option>
-              <option value="active">Vigentes</option>
-            </select>
-          </label>
+          <div class="toolbar-heading">
+            <div>
+              <p class="section-kicker">Explorar cartera</p>
+              <h2>Filtros</h2>
+            </div>
+            <button id="exportExcel" type="button" class="export-button">Exportar Excel</button>
+          </div>
+          <div class="filters-grid">
+            <label class="search-field">
+              Buscar
+              <input id="searchInput" type="search" placeholder="Cliente, póliza, producto o nota">
+            </label>
+            <label>
+              Mes
+              <select id="monthFilter">
+                <option value="all">Todos</option>
+              </select>
+            </label>
+            <label>
+              Moneda
+              <select id="currencyFilter">
+                <option value="all">Todas</option>
+                <option value="MXN">Pesos</option>
+                <option value="USD">Dólares</option>
+              </select>
+            </label>
+            <label>
+              Estado
+              <select id="statusFilter">
+                <option value="all">Todas</option>
+                <option value="expired">Vencidas</option>
+                <option value="active">Vigentes</option>
+              </select>
+            </label>
+            <label>
+              Pago
+              <select id="paymentFilter">
+                <option value="all">Todas</option>
+                <option value="paid">Pagadas</option>
+                <option value="unpaid">No pagadas</option>
+              </select>
+            </label>
+            <label>
+              Cobranza
+              <select id="collectionFilter">
+                <option value="all">Todas</option>
+                <option value="attention">Por atender</option>
+                <option value="overdue">Cobro vencido</option>
+                <option value="upcoming">Próximos 7 días</option>
+                <option value="missing">Sin fecha</option>
+              </select>
+            </label>
+            <div class="filter-actions">
+              <button id="clearFilters" type="button" class="secondary">Limpiar filtros</button>
+            </div>
+          </div>
         </section>
 
         <section class="table-wrap" aria-labelledby="tableTitle">
           <div class="table-heading">
-            <h2 id="tableTitle">Pólizas registradas</h2>
+            <div>
+              <p class="section-kicker">Resultados</p>
+              <h2 id="tableTitle">Pólizas registradas</h2>
+            </div>
+            <span class="table-hint">Desliza horizontalmente para ver todos los datos</span>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Número de Póliza</th>
-                <th>Vigencia desde</th>
-                <th>Hasta</th>
-                <th>Producto</th>
-                <th>Forma de Pago</th>
-                <th>Prima Neta</th>
-                <th>Total a pagar</th>
-                <th>Moneda</th>
-                <th>Estado</th>
-                <th class="actions-column">Acciones</th>
-              </tr>
-            </thead>
-            <tbody id="policyRows"></tbody>
-          </table>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Número de Póliza</th>
+                  <th>Vigencia desde</th>
+                  <th>Hasta</th>
+                  <th>Producto</th>
+                  <th>Forma de Pago</th>
+                  <th>Próximo pago</th>
+                  <th>Total a pagar</th>
+                  <th>Ganancia del agente</th>
+                  <th>Moneda</th>
+                  <th>Estado</th>
+                  <th>Pago</th>
+                  <th>Notas</th>
+                  <th class="actions-column">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="policyRows"></tbody>
+            </table>
+          </div>
           <p id="emptyState" class="empty">No hay pólizas capturadas todavía.</p>
         </section>
       </section>
     </main>
+
+    <dialog id="noteDialog" class="note-dialog" aria-labelledby="noteDialogTitle">
+      <div class="note-dialog-header">
+        <div>
+          <p class="section-kicker">Nota de póliza</p>
+          <h2 id="noteDialogTitle">Nota</h2>
+        </div>
+        <button id="closeNoteDialog" type="button" class="icon-button" aria-label="Cerrar nota">×</button>
+      </div>
+      <div id="noteDialogBody" class="note-dialog-body"></div>
+    </dialog>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="app.js"></script>

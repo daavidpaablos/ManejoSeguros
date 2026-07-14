@@ -27,7 +27,6 @@ const samplePolicies = [
     hasta: "2024-06-20",
     producto: "Camiones Flotilla",
     formaPago: "Contado",
-    primaNeta: 175154.27,
     totalPagar: 196942.61,
     moneda: "MXN",
   },
@@ -38,7 +37,6 @@ const samplePolicies = [
     hasta: "2024-06-15",
     producto: "Múltiple Empresarial",
     formaPago: "Contado",
-    primaNeta: 27718.94,
     totalPagar: 30044.46,
     moneda: "MXN",
   },
@@ -49,7 +47,6 @@ const samplePolicies = [
     hasta: "2024-06-22",
     producto: "Múltiple Empresarial",
     formaPago: "Contado",
-    primaNeta: 11873.59,
     totalPagar: 13341.88,
     moneda: "USD",
   },
@@ -62,13 +59,24 @@ const monthFilter = document.querySelector("#monthFilter");
 const searchInput = document.querySelector("#searchInput");
 const currencyFilter = document.querySelector("#currencyFilter");
 const statusFilter = document.querySelector("#statusFilter");
+const paymentFilter = document.querySelector("#paymentFilter");
+const collectionFilter = document.querySelector("#collectionFilter");
 const saveButton = document.querySelector("#saveButton");
+const formTitle = document.querySelector("#formTitle");
 const pdfInput = document.querySelector("#pdfInput");
 const pdfStatus = document.querySelector("#pdfStatus");
 const savePdfCheckbox = document.querySelector("#savePdfCheckbox");
 const showExpiredButton = document.querySelector("#showExpiredButton");
+const showCollectionsButton = document.querySelector("#showCollectionsButton");
 const tableTitle = document.querySelector("#tableTitle");
 const importBackupInput = document.querySelector("#importBackup");
+const clearFiltersButton = document.querySelector("#clearFilters");
+const exportExcelButton = document.querySelector("#exportExcel");
+const nextPaymentField = document.querySelector("#nextPaymentField");
+const noteDialog = document.querySelector("#noteDialog");
+const noteDialogTitle = document.querySelector("#noteDialogTitle");
+const noteDialogBody = document.querySelector("#noteDialogBody");
+const closeNoteDialogButton = document.querySelector("#closeNoteDialog");
 
 let policies = loadPolicies();
 let pendingPdf = null;
@@ -86,29 +94,36 @@ migrateLegacyPdfs();
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(form).entries());
-  const existingPolicy = policies.find((item) => item.id === data.editingId);
+  const editingId = form.elements.editingId.value;
+  const renewalSourceId = form.elements.renewalSourceId.value;
+  const existingPolicy = policies.find((item) => item.id === editingId);
+  const renewalSourcePolicy = policies.find((item) => item.id === renewalSourceId);
   const previousPolicies = [...policies];
   const pdf = await preparePdfForPolicy(existingPolicy);
   const policy = {
-    id: data.editingId || crypto.randomUUID(),
+    id: existingPolicy?.id || editingId || crypto.randomUUID(),
     cliente: data.cliente.trim(),
     poliza: data.poliza.trim(),
     desde: data.desde,
     hasta: data.hasta,
     producto: data.producto.trim(),
     formaPago: data.formaPago,
-    primaNeta: parseMoney(data.primaNeta),
+    proximoPago: usesInstallments(data.formaPago) ? data.proximoPago || "" : "",
     totalPagar: parseMoney(data.totalPagar),
+    gananciaAgente: parseMoney(data.gananciaAgente),
+    notas: data.notas.trim(),
     moneda: data.moneda,
     pdf,
+    pagada: existingPolicy ? isPolicyPaid(existingPolicy) : true,
+    renovacionDe: existingPolicy?.renovacionDe || renewalSourceId || null,
   };
 
-  policies = upsertPolicy(policies, policy, data.editingId);
+  policies = upsertPolicy(policies, policy, editingId, renewalSourceId);
   const saved = savePolicies();
 
   if (!saved && policy.pdf) {
-    const policyWithoutPdf = { ...policy, pdf: null };
-    policies = upsertPolicy(previousPolicies, policyWithoutPdf, data.editingId);
+    const policyWithoutPdf = { ...policy, pdf: existingPolicy?.pdf || null };
+    policies = upsertPolicy(previousPolicies, policyWithoutPdf, editingId, renewalSourceId);
 
     if (savePolicies()) {
       alert("La póliza se guardó, pero el PDF no quedó adjunto porque el navegador no tuvo espacio suficiente.");
@@ -125,24 +140,39 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (renewalSourcePolicy) {
+    await deleteStoredPdf(renewalSourcePolicy.pdf);
+  }
+
   resetForm();
   render();
 });
 
 document.querySelector("#clearButton").addEventListener("click", resetForm);
-document.querySelector("#exportCsv").addEventListener("click", exportCsv);
-document.querySelector("#importCsv").addEventListener("change", importCsv);
 document.querySelector("#exportBackup").addEventListener("click", exportBackup);
 importBackupInput.addEventListener("change", importBackup);
 pdfInput.addEventListener("change", importPdf);
+clearFiltersButton.addEventListener("click", clearFilters);
+exportExcelButton.addEventListener("click", exportExcel);
+form.elements.formaPago.addEventListener("change", updateNextPaymentVisibility);
+closeNoteDialogButton.addEventListener("click", () => noteDialog.close());
+noteDialog.addEventListener("click", (event) => {
+  if (event.target === noteDialog) noteDialog.close();
+});
 showExpiredButton.addEventListener("click", () => {
   statusFilter.value = "expired";
   render();
 });
+showCollectionsButton.addEventListener("click", () => {
+  collectionFilter.value = "attention";
+  render();
+});
 
-[monthFilter, searchInput, currencyFilter, statusFilter].forEach((control) => {
+[monthFilter, searchInput, currencyFilter, statusFilter, paymentFilter, collectionFilter].forEach((control) => {
   control.addEventListener("input", render);
 });
+
+updateNextPaymentVisibility();
 
 rows.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-action]");
@@ -153,6 +183,20 @@ rows.addEventListener("click", async (event) => {
 
   if (button.dataset.action === "edit") {
     fillForm(policy);
+  }
+
+  if (button.dataset.action === "renew") {
+    fillRenewalForm(policy);
+  }
+
+  if (button.dataset.action === "togglePaid") {
+    policy.pagada = !isPolicyPaid(policy);
+    savePolicies();
+    render();
+  }
+
+  if (button.dataset.action === "showNote") {
+    showPolicyNote(policy);
   }
 
   if (button.dataset.action === "delete") {
@@ -177,21 +221,31 @@ function render() {
   visiblePolicies.forEach((policy) => {
     const tr = document.createElement("tr");
     const expired = isPolicyExpired(policy);
-    tr.className = expired ? "expired-row" : "";
+    tr.className = [expired ? "expired-row" : "", policy.renovacionDe ? "renewal-row" : ""].filter(Boolean).join(" ");
     tr.innerHTML = `
-      <td>${escapeHtml(policy.cliente)}</td>
+      <td>${policy.renovacionDe ? '<span class="renewal-label">Renovación</span>' : ""}${escapeHtml(policy.cliente)}</td>
       <td>${escapeHtml(policy.poliza)}</td>
       <td>${formatDate(policy.desde)}</td>
       <td>${formatDate(policy.hasta)}</td>
       <td>${escapeHtml(policy.producto)}</td>
       <td>${escapeHtml(policy.formaPago)}</td>
-      <td class="money">${formatMoney(policy.primaNeta, policy.moneda)}</td>
+      <td>${getCollectionDateDisplay(policy)}</td>
       <td class="money">${formatMoney(policy.totalPagar, policy.moneda)}</td>
+      <td class="money">${formatMoney(policy.gananciaAgente, policy.moneda)}</td>
       <td>${policy.moneda === "USD" ? "Dólares" : "Pesos"}</td>
       <td>${getPolicyStatusBadge(policy)}</td>
       <td>
+        <button type="button" class="payment-status ${isPolicyPaid(policy) ? "paid" : "unpaid"}" data-action="togglePaid" data-id="${policy.id}">
+          ${isPolicyPaid(policy) ? "Pagada" : "No pagada"}
+        </button>
+      </td>
+      <td class="notes-cell">
+        ${policy.notas ? `<button type="button" class="secondary" data-action="showNote" data-id="${policy.id}">Ver nota</button>` : "—"}
+      </td>
+      <td>
         <div class="row-actions">
           <button type="button" class="secondary" data-action="edit" data-id="${policy.id}">Editar</button>
+          ${expired ? `<button type="button" class="secondary" data-action="renew" data-id="${policy.id}">Renovar</button>` : ""}
           ${policy.pdf ? `<button type="button" class="secondary" data-action="viewPdf" data-id="${policy.id}">Ver PDF</button>` : ""}
           <button type="button" class="danger" data-action="delete" data-id="${policy.id}">Borrar</button>
         </div>
@@ -203,7 +257,7 @@ function render() {
   emptyState.hidden = visiblePolicies.length > 0;
   emptyState.textContent = getEmptyStateMessage();
   tableTitle.textContent = getTableTitle();
-  updateSummary();
+  updateSummary(visiblePolicies);
 }
 
 function getVisiblePolicies() {
@@ -211,6 +265,8 @@ function getVisiblePolicies() {
   const selectedMonth = monthFilter.value;
   const selectedCurrency = currencyFilter.value;
   const selectedStatus = statusFilter.value;
+  const selectedPayment = paymentFilter.value;
+  const selectedCollection = collectionFilter.value;
 
   return policies.filter((policy) => {
     const startsInMonth =
@@ -220,53 +276,98 @@ function getVisiblePolicies() {
       selectedStatus === "all" ||
       (selectedStatus === "expired" && isPolicyExpired(policy)) ||
       (selectedStatus === "active" && !isPolicyExpired(policy));
-    const searchable = `${policy.cliente} ${policy.poliza} ${policy.producto}`.toLowerCase();
-    return startsInMonth && matchesCurrency && matchesStatus && searchable.includes(query);
+    const matchesPayment =
+      selectedPayment === "all" ||
+      (selectedPayment === "paid" && isPolicyPaid(policy)) ||
+      (selectedPayment === "unpaid" && !isPolicyPaid(policy));
+    const collectionStatus = getCollectionStatus(policy);
+    const matchesCollection =
+      selectedCollection === "all" ||
+      (selectedCollection === "attention" && ["overdue", "upcoming", "missing"].includes(collectionStatus)) ||
+      selectedCollection === collectionStatus;
+    const searchable = `${policy.cliente} ${policy.poliza} ${policy.producto} ${policy.notas || ""}`.toLowerCase();
+    return startsInMonth && matchesCurrency && matchesStatus && matchesPayment && matchesCollection && searchable.includes(query);
   });
 }
 
+function clearFilters() {
+  monthFilter.value = "all";
+  searchInput.value = "";
+  currencyFilter.value = "all";
+  statusFilter.value = "all";
+  paymentFilter.value = "all";
+  collectionFilter.value = "all";
+  render();
+}
+
 function getTableTitle() {
+  if (collectionFilter.value === "attention") return "Cobros por atender";
+  if (collectionFilter.value === "overdue") return "Cobros vencidos";
+  if (collectionFilter.value === "upcoming") return "Cobros de los próximos 7 días";
+  if (collectionFilter.value === "missing") return "Pólizas sin fecha de cobro";
   if (statusFilter.value === "expired") return "Pólizas vencidas";
   if (statusFilter.value === "active") return "Pólizas vigentes";
   return "Pólizas registradas";
 }
 
 function getEmptyStateMessage() {
+  if (collectionFilter.value === "attention") return "No hay cobros por atender con estos filtros.";
+  if (collectionFilter.value === "overdue") return "No hay cobros vencidos con estos filtros.";
+  if (collectionFilter.value === "upcoming") return "No hay cobros programados para los próximos 7 días.";
+  if (collectionFilter.value === "missing") return "Todas las pólizas fraccionadas tienen fecha de cobro.";
   if (statusFilter.value === "expired") return "No hay pólizas vencidas con estos filtros.";
   if (statusFilter.value === "active") return "No hay pólizas vigentes con estos filtros.";
   return "No hay pólizas capturadas todavía.";
 }
 
-function updateSummary() {
+function updateSummary(visiblePolicies) {
   const counts = {
     Contado: 0,
     Semestral: 0,
     Trimestral: 0,
     Mensual: 0,
   };
+  const totals = {
+    MXN: { totalPagar: 0, gananciaAgente: 0 },
+    USD: { totalPagar: 0, gananciaAgente: 0 },
+  };
 
-  policies.forEach((policy) => {
+  visiblePolicies.forEach((policy) => {
     counts[policy.formaPago] += 1;
+    const currency = policy.moneda === "USD" ? "USD" : "MXN";
+    totals[currency].totalPagar += Number(policy.totalPagar) || 0;
+    totals[currency].gananciaAgente += Number(policy.gananciaAgente) || 0;
   });
 
-  document.querySelector("#totalClientes").textContent = policies.length;
-  document.querySelector("#totalVencidas").textContent = policies.filter(isPolicyExpired).length;
+  document.querySelector("#totalClientes").textContent = visiblePolicies.length;
+  document.querySelector("#totalVencidas").textContent = visiblePolicies.filter(isPolicyExpired).length;
+  document.querySelector("#totalCollectionsDue").textContent = visiblePolicies.filter((policy) =>
+    ["overdue", "upcoming", "missing"].includes(getCollectionStatus(policy))
+  ).length;
   document.querySelector("#totalContado").textContent = counts.Contado;
   document.querySelector("#totalSemestral").textContent = counts.Semestral;
   document.querySelector("#totalTrimestral").textContent = counts.Trimestral;
   document.querySelector("#totalMensual").textContent = counts.Mensual;
+  document.querySelector("#totalPagarMXN").textContent = formatSummaryMoney(totals.MXN.totalPagar, "MXN");
+  document.querySelector("#totalPagarUSD").textContent = formatSummaryMoney(totals.USD.totalPagar, "USD");
+  document.querySelector("#totalGananciaMXN").textContent = formatSummaryMoney(totals.MXN.gananciaAgente, "MXN");
+  document.querySelector("#totalGananciaUSD").textContent = formatSummaryMoney(totals.USD.gananciaAgente, "USD");
 }
 
 function fillForm(policy) {
   form.elements.editingId.value = policy.id;
+  form.elements.renewalSourceId.value = "";
   form.elements.cliente.value = policy.cliente;
   form.elements.poliza.value = policy.poliza;
   form.elements.desde.value = policy.desde;
   form.elements.hasta.value = policy.hasta;
   form.elements.producto.value = policy.producto;
   form.elements.formaPago.value = policy.formaPago;
-  form.elements.primaNeta.value = policy.primaNeta;
+  form.elements.proximoPago.value = policy.proximoPago || "";
+  updateNextPaymentVisibility();
   form.elements.totalPagar.value = policy.totalPagar;
+  form.elements.gananciaAgente.value = policy.gananciaAgente || "";
+  form.elements.notas.value = policy.notas || "";
   form.elements.moneda.value = policy.moneda;
   pendingPdf = policy.pdf || null;
   savePdfCheckbox.disabled = !pendingPdf;
@@ -274,18 +375,43 @@ function fillForm(policy) {
   if (pendingPdf) {
     setPdfStatus(`PDF guardado: ${pendingPdf.name}`, "success");
   }
-  saveButton.textContent = "Actualizar";
+  formTitle.textContent = "Editar póliza";
+  saveButton.textContent = "Actualizar póliza";
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function fillRenewalForm(policy) {
+  resetForm();
+  form.elements.renewalSourceId.value = policy.id;
+  form.elements.cliente.value = policy.cliente;
+  form.elements.poliza.value = "";
+  form.elements.desde.value = policy.hasta;
+  form.elements.hasta.value = addYearsToDate(policy.hasta, 1);
+  form.elements.producto.value = policy.producto;
+  form.elements.formaPago.value = policy.formaPago;
+  form.elements.proximoPago.value = "";
+  updateNextPaymentVisibility();
+  form.elements.totalPagar.value = policy.totalPagar;
+  form.elements.gananciaAgente.value = policy.gananciaAgente || "";
+  form.elements.notas.value = policy.notas || "";
+  form.elements.moneda.value = policy.moneda;
+  formTitle.textContent = "Renovar póliza";
+  saveButton.textContent = "Guardar renovación";
+  setPdfStatus("Puedes adjuntar el PDF nuevo. Al guardar, la póliza vencida y su PDF anterior se eliminarán.");
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function resetForm() {
   form.reset();
   form.elements.editingId.value = "";
+  form.elements.renewalSourceId.value = "";
   form.elements.moneda.value = "MXN";
+  updateNextPaymentVisibility();
   pendingPdf = null;
   savePdfCheckbox.checked = false;
   savePdfCheckbox.disabled = true;
-  saveButton.textContent = "Guardar";
+  formTitle.textContent = "Nueva póliza";
+  saveButton.textContent = "Guardar póliza";
   setPdfStatus("Carga una póliza en PDF para intentar llenar estos campos automáticamente.");
 }
 
@@ -306,16 +432,88 @@ function savePolicies() {
   }
 }
 
-function upsertPolicy(list, policy, editingId) {
+function upsertPolicy(list, policy, editingId, renewalSourceId = "") {
   if (editingId) {
     return list.map((item) => (item.id === editingId ? policy : item));
+  }
+
+  if (renewalSourceId) {
+    const sourceIndex = list.findIndex((item) => item.id === renewalSourceId);
+    if (sourceIndex >= 0) {
+      return [...list.slice(0, sourceIndex), policy, ...list.slice(sourceIndex + 1)];
+    }
   }
 
   return [...list, policy];
 }
 
+function isPolicyPaid(policy) {
+  return policy.pagada !== false;
+}
+
+function showPolicyNote(policy) {
+  noteDialogTitle.textContent = policy.cliente || "Nota";
+  noteDialogBody.textContent = policy.notas || "Esta póliza no tiene notas.";
+
+  if (typeof noteDialog.showModal === "function") {
+    noteDialog.showModal();
+  } else {
+    alert(`Nota de ${policy.cliente}:\n\n${policy.notas}`);
+  }
+}
+
+function usesInstallments(paymentMethod) {
+  return ["Mensual", "Trimestral", "Semestral"].includes(paymentMethod);
+}
+
+function getCollectionStatus(policy) {
+  if (!usesInstallments(policy.formaPago)) return "not_applicable";
+  if (!policy.proximoPago) return "missing";
+
+  const paymentDate = parseLocalDate(policy.proximoPago);
+  if (!paymentDate) return "missing";
+
+  const daysUntilPayment = Math.round((paymentDate - getTodayStart()) / 86400000);
+  if (daysUntilPayment < 0) return "overdue";
+  if (daysUntilPayment <= 7) return "upcoming";
+  return "scheduled";
+}
+
+function getCollectionDateDisplay(policy) {
+  const status = getCollectionStatus(policy);
+  if (status === "not_applicable") return '<span class="collection-na">—</span>';
+  if (status === "missing") return '<span class="badge badge-muted">Sin fecha</span>';
+
+  const date = formatDate(policy.proximoPago);
+  if (status === "overdue") {
+    return `<span class="collection-date"><strong>${date}</strong><span class="badge badge-expired">Cobro vencido</span></span>`;
+  }
+  if (status === "upcoming") {
+    return `<span class="collection-date"><strong>${date}</strong><span class="badge badge-warning">Próximo</span></span>`;
+  }
+
+  return `<span class="collection-date"><strong>${date}</strong><span class="badge badge-muted">Programado</span></span>`;
+}
+
+function updateNextPaymentVisibility() {
+  const visible = usesInstallments(form.elements.formaPago.value);
+  nextPaymentField.hidden = !visible;
+  if (!visible) form.elements.proximoPago.value = "";
+}
+
+function addYearsToDate(value, years) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+
+  const [, year, month, day] = match;
+  const date = new Date(Number(year) + years, Number(month) - 1, Number(day));
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+}
+
 async function preparePdfForPolicy(existingPolicy) {
-  if (!savePdfCheckbox.checked) return null;
+  const isExistingPdf = existingPolicy?.pdf && pendingPdf?.id === existingPolicy.pdf.id;
+  if (isExistingPdf) return existingPolicy.pdf;
+  if (!savePdfCheckbox.checked) return existingPolicy?.pdf || null;
   if (!pendingPdf) return existingPolicy?.pdf || null;
 
   if (!pendingPdf.dataUrl) {
@@ -455,6 +653,14 @@ function formatMoney(value, currency) {
   }).format(Number(value) || 0);
 }
 
+function formatSummaryMoney(value, currency) {
+  const amount = new Intl.NumberFormat("es-MX", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
+  return `$${amount} ${currency}`;
+}
+
 function formatDate(value) {
   if (!value) return "";
   return new Intl.DateTimeFormat("es-MX").format(new Date(`${value}T00:00:00`));
@@ -516,7 +722,6 @@ function exportCsv() {
     "Hasta",
     "Producto",
     "Forma de Pago",
-    "Prima Neta",
     "Total a pagar",
     "Moneda",
   ];
@@ -529,7 +734,6 @@ function exportCsv() {
       policy.hasta,
       policy.producto,
       policy.formaPago,
-      policy.primaNeta,
       policy.totalPagar,
       policy.moneda,
     ]),
@@ -542,6 +746,79 @@ function exportCsv() {
   link.download = "polizas-seguros.csv";
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function exportExcel() {
+  const visiblePolicies = getVisiblePolicies();
+
+  if (!visiblePolicies.length) {
+    alert("No hay pólizas para exportar con los filtros actuales.");
+    return;
+  }
+
+  const headers = [
+    "Cliente", "Número de Póliza", "Vigencia desde", "Hasta", "Producto",
+    "Forma de Pago", "Próximo pago", "Total a pagar", "Ganancia del agente", "Moneda", "Estado", "Pago",
+  ];
+  const headerRow = headers.map((heading) => excelXmlCell(heading, "String", "Header")).join("");
+  const dataRows = visiblePolicies.map((policy) => [
+    excelXmlCell(policy.cliente),
+    excelXmlCell(policy.poliza),
+    excelXmlCell(policy.desde),
+    excelXmlCell(policy.hasta),
+    excelXmlCell(policy.producto),
+    excelXmlCell(policy.formaPago),
+    excelXmlCell(policy.proximoPago || ""),
+    excelXmlCell(Number(policy.totalPagar) || 0, "Number", "Money"),
+    excelXmlCell(Number(policy.gananciaAgente) || 0, "Number", "Money"),
+    excelXmlCell(policy.moneda),
+    excelXmlCell(isPolicyExpired(policy) ? "Vencida" : "Vigente"),
+    excelXmlCell(isPolicyPaid(policy) ? "Pagada" : "No pagada"),
+  ].join("")).map((cells) => `<Row>${cells}</Row>`).join("");
+  const lastRow = visiblePolicies.length + 1;
+  const excelXml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:x="urn:schemas-microsoft-com:office:excel">
+ <Styles>
+  <Style ss:ID="Header"><Font ss:Bold="1"/><Interior ss:Color="#F7C400" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Money"><NumberFormat ss:Format="#,##0.00"/></Style>
+ </Styles>
+ <Worksheet ss:Name="Pólizas">
+  <Table>
+   <Column ss:Width="210"/><Column ss:Width="135"/><Column ss:Width="95"/><Column ss:Width="95"/>
+   <Column ss:Width="170"/><Column ss:Width="115"/><Column ss:Width="95"/><Column ss:Width="110"/><Column ss:Width="125"/><Column ss:Width="65"/><Column ss:Width="75"/><Column ss:Width="75"/>
+   <Row>${headerRow}</Row>${dataRows}
+  </Table>
+  <AutoFilter x:Range="R1C1:R${lastRow}C12"/>
+ </Worksheet>
+</Workbook>`;
+
+  downloadTextFile(excelXml, getExcelFilename(), "application/vnd.ms-excel;charset=utf-8");
+}
+
+function excelXmlCell(value, type = "String", styleId = "") {
+  const style = styleId ? ` ss:StyleID="${styleId}"` : "";
+  return `<Cell${style}><Data ss:Type="${type}">${escapeXml(value)}</Data></Cell>`;
+}
+
+function escapeXml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function getExcelFilename() {
+  if (monthFilter.value !== "all") {
+    const month = monthNames[Number(monthFilter.value) - 1].toLowerCase();
+    return `polizas-${removeAccents(month)}.xls`;
+  }
+
+  return "polizas-filtradas.xls";
 }
 
 async function exportBackup() {
@@ -637,10 +914,14 @@ function normalizeBackupPolicy(policy) {
     hasta: normalizeDate(policy.hasta),
     producto: String(policy.producto || "").trim(),
     formaPago: ["Contado", "Semestral", "Trimestral", "Mensual"].includes(policy.formaPago) ? policy.formaPago : "Contado",
-    primaNeta: parseMoney(policy.primaNeta),
+    proximoPago: normalizeDate(policy.proximoPago),
     totalPagar: parseMoney(policy.totalPagar),
+    gananciaAgente: parseMoney(policy.gananciaAgente),
+    notas: String(policy.notas || "").trim(),
     moneda: policy.moneda === "USD" ? "USD" : "MXN",
     pdf: null,
+    pagada: policy.pagada !== false,
+    renovacionDe: policy.renovacionDe || null,
   };
 }
 
@@ -684,7 +965,10 @@ function importCsv(event) {
   const reader = new FileReader();
   reader.addEventListener("load", () => {
     const lines = parseCsv(String(reader.result));
-    const imported = lines.slice(1).filter((row) => row.length >= 9).map((row) => ({
+    const importsLegacyPrima = lines[0]?.some((heading) => removeAccents(heading).toLowerCase().includes("prima neta"));
+    const totalIndex = importsLegacyPrima ? 7 : 6;
+    const currencyIndex = importsLegacyPrima ? 8 : 7;
+    const imported = lines.slice(1).filter((row) => row.length > currencyIndex).map((row) => ({
       id: crypto.randomUUID(),
       cliente: row[0],
       poliza: row[1],
@@ -692,9 +976,13 @@ function importCsv(event) {
       hasta: normalizeDate(row[3]),
       producto: row[4],
       formaPago: row[5],
-      primaNeta: parseMoney(row[6]),
-      totalPagar: parseMoney(row[7]),
-      moneda: row[8] === "USD" ? "USD" : "MXN",
+      proximoPago: "",
+      totalPagar: parseMoney(row[totalIndex]),
+      gananciaAgente: 0,
+      notas: "",
+      moneda: row[currencyIndex] === "USD" ? "USD" : "MXN",
+      pagada: true,
+      renovacionDe: null,
     }));
     policies = [...policies, ...imported];
     savePolicies();
@@ -851,7 +1139,6 @@ function extractPolicyFromText(text) {
     hasta: dates[1] || "",
     producto: detectProduct(cleanText),
     formaPago: detectPayment(cleanText),
-    primaNeta: findAmountNear(cleanText, /prima\s+neta/i) || amounts.at(-2) || "",
     totalPagar: findAmountNear(cleanText, /total\s+(?:a\s+pagar|pagar|prima)|importe\s+total/i) || amounts.at(-1) || "",
     moneda: detectCurrency(cleanText),
   };
@@ -864,7 +1151,7 @@ function fillFormFromPdf(policy) {
   if (policy.hasta) form.elements.hasta.value = policy.hasta;
   if (policy.producto) form.elements.producto.value = policy.producto;
   if (policy.formaPago) form.elements.formaPago.value = policy.formaPago;
-  if (policy.primaNeta) form.elements.primaNeta.value = parseMoney(policy.primaNeta);
+  updateNextPaymentVisibility();
   if (policy.totalPagar) form.elements.totalPagar.value = parseMoney(policy.totalPagar);
   if (policy.moneda) form.elements.moneda.value = policy.moneda;
 }
